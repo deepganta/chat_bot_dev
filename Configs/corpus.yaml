@@ -1,17 +1,30 @@
-# Add your target pages in seed_urls. Keep it explicit and realistic.
-# Example placeholders below — replace with your actual pages.
-project_name: "ub-campus-living"   # change anytime
+project_name: "ford-knowledge"
 output_dir: "data"
 user_agent: "RAGScraper/1.0 (+https://example.com/contact)"
-concurrency: 8
+concurrency: 6
 request_timeout_sec: 20
 retry_attempts: 3
-sleep_min_ms: 200
-sleep_max_ms: 600
+
+
+sleep_min_ms: 300
+sleep_max_ms: 900
+
 respect_robots: true
 
+
 seed_urls:
-  - "https://www.buffalo.edu/campus-living/policies.html"
-  - "https://www.buffalo.edu/campus-living/how-to/maintenance.html"
-  - "https://www.buffalo.edu/campus-living/how-to/mail-and-packages.html"
-  # Add more URLs here
+  # Official Ford corporate information
+  - "https://corporate.ford.com/company.html"
+  - "https://corporate.ford.com/operations.html"
+  - "https://corporate.ford.com/leadership.html"
+
+  # Investor / reports (lots of factual content)
+  - "https://corporate.ford.com/investors/reports-and-filings/annual-reports.html"
+  - "https://corporate.ford.com/investors/reports-and-filings/quarterly-reports.html"
+
+  # Official news/press
+  - "https://media.ford.com/content/fordmedia/fna/us/en/news.html"
+
+  # Customer-facing support/overview pages (useful product FAQs and specs)
+  - "https://www.ford.com/support/"
+  - "https://www.ford.com/vehicles/"
