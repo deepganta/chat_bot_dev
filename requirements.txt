@@ -8,3 +8,5 @@ python-dotenv==1.0.1
 # LLM (for text→SQL in the chatbot)
 openai>=1.42.0  
 beautifulsoup4
+
+lxml
