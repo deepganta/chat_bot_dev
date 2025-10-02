@@ -26,4 +26,5 @@ build/
 *.zip
 *.log
 *.out
-*.pid           
+*.pid 
+*.bin          
