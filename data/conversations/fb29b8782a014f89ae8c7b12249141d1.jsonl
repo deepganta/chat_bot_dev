@@ -1,0 +1,4 @@
+{"role": "user", "content": "I want to check the least priced car.", "created_at": "2025-10-03T02:40:53.007530+00:00"}
+{"role": "assistant", "content": "Routing decision: sql. (Confidence 1.00)\nThe specialized agent will respond soon.", "created_at": "2025-10-03T02:40:54.343409+00:00"}
+{"role": "user", "content": "I want to know about returning policy", "created_at": "2025-10-03T02:42:03.012952+00:00"}
+{"role": "assistant", "content": "Routing decision: general. (Confidence 1.00)\nThe specialized agent will respond soon.", "created_at": "2025-10-03T02:42:04.309150+00:00"}
