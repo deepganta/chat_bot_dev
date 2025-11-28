@@ -87,11 +87,18 @@ prompt = st.chat_input("Type your question")
 
 if prompt:
     try:
-        result: HandlerResult = handle_user_query(
-            prompt,
-            conversation_id=st.session_state.conversation_id,
-            enable_judge=True,
-        )
+        with st.chat_message("user"):
+            st.write(prompt)
+
+        with st.chat_message("assistant"):
+            with st.spinner("Thinking..."):
+                result: HandlerResult = handle_user_query(
+                    prompt,
+                    conversation_id=st.session_state.conversation_id,
+                    enable_judge=True,
+                )
+            st.write(result.assistant_message.content)
+
         _append_messages(result.user_message, result.assistant_message)
         st.rerun()
     except ValueError as exc:

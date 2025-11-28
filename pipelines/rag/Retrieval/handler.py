@@ -15,7 +15,7 @@ from typing import Iterable, Optional
 
 import uuid
 
-from .judge import JudgeVerdict, judge_prompt
+from .judge import Decision, JudgeVerdict, judge_prompt
 
 
 DEFAULT_LOG_PATH = Path("data/queries/query_log.jsonl")
@@ -153,25 +153,101 @@ def handle_user_query(
     user_message = ConversationMessage(role="user", content=record.prompt, created_at=now)
     conversations.append(conversation_id, user_message)
 
+    conversation_history = list(conversations.load(conversation_id))
+    context_history = conversation_history[:-1] if conversation_history else []
+
     verdict: Optional[JudgeVerdict] = None
     if enable_judge:
         verdict = judge_prompt(prompt=record.prompt, model=judge_model, llm=llm)
 
-    assistant_reply_content = (
-        "Thanks! Your question has been captured. A response workflow will pick it up shortly."
-        if verdict is None
-        else (
-            "Routing decision: {path}. (Confidence {confidence:.2f})\n"
-            "The specialized agent will respond soon."
-        ).format(path=verdict.decision.value, confidence=verdict.confidence)
-    )
+    assistant_reply: ConversationMessage
+    general_raw_response: Optional[str] = None
+    rag_sources: Optional[list] = None
+    rag_answer: Optional[str] = None
+    sql_query: Optional[str] = None
+    sql_row_count: Optional[int] = None
 
-    assistant_reply = ConversationMessage(
-        role="assistant",
-        content=assistant_reply_content,
-        created_at=datetime.now(timezone.utc).isoformat(),
-    )
-    conversations.append(conversation_id, assistant_reply)
+    if verdict and verdict.decision == Decision.GENERAL:
+        try:
+            from .general import handle_general_query
+
+            assistant_reply, general_raw_response = handle_general_query(
+                prompt=record.prompt,
+                conversation_id=conversation_id,
+                conversation_store=conversations,
+                message_factory=ConversationMessage,
+                history=context_history,
+            )
+        except Exception as exc:
+            assistant_reply = ConversationMessage(
+                role="assistant",
+                content=(
+                    "We captured your question, but the general responder is unavailable right now.\n"
+                    f"Reason: {exc}"
+                ),
+                created_at=datetime.now(timezone.utc).isoformat(),
+            )
+            conversations.append(conversation_id, assistant_reply)
+    elif verdict and verdict.decision == Decision.RAG:
+        try:
+            from .rag import handle_rag_query
+
+            assistant_reply, rag_answer, rag_sources = handle_rag_query(
+                prompt=record.prompt,
+                conversation_id=conversation_id,
+                conversation_store=conversations,
+                message_factory=ConversationMessage,
+                history=context_history,
+            )
+        except Exception as exc:
+            assistant_reply = ConversationMessage(
+                role="assistant",
+                content=(
+                    "We captured your question, but the retrieval responder is unavailable right now.\n"
+                    f"Reason: {exc}"
+                ),
+                created_at=datetime.now(timezone.utc).isoformat(),
+            )
+            conversations.append(conversation_id, assistant_reply)
+    elif verdict and verdict.decision == Decision.SQL:
+        try:
+            from .sql import handle_sql_query
+
+            sql_message, sql_query, sql_rows = handle_sql_query(
+                prompt=record.prompt,
+                conversation_id=conversation_id,
+                conversation_store=conversations,
+                message_factory=ConversationMessage,
+                history=context_history,
+            )
+            assistant_reply = sql_message
+            sql_row_count = len(sql_rows) if sql_rows is not None else 0
+        except Exception as exc:
+            assistant_reply = ConversationMessage(
+                role="assistant",
+                content=(
+                    "We captured your question, but the SQL responder is unavailable right now.\n"
+                    f"Reason: {exc}"
+                ),
+                created_at=datetime.now(timezone.utc).isoformat(),
+            )
+            conversations.append(conversation_id, assistant_reply)
+    else:
+        assistant_reply_content = (
+            "Thanks! Your question has been captured. A response workflow will pick it up shortly."
+            if verdict is None
+            else (
+                "Routing decision: {path}. (Confidence {confidence:.2f})\n"
+                "The specialized agent will respond soon."
+            ).format(path=verdict.decision.value, confidence=verdict.confidence)
+        )
+
+        assistant_reply = ConversationMessage(
+            role="assistant",
+            content=assistant_reply_content,
+            created_at=datetime.now(timezone.utc).isoformat(),
+        )
+        conversations.append(conversation_id, assistant_reply)
 
     # Initial milestone: print the conversation id and prompt for operator visibility.
     print(
@@ -183,6 +259,21 @@ def handle_user_query(
         )
         if verdict.raw_response:
             print(f"[retrieval] raw judge response: {verdict.raw_response}")
+        if general_raw_response:
+            print(f"[retrieval] general-response raw content: {general_raw_response}")
+        if rag_answer is not None:
+            print(f"[retrieval] rag-response answer: {rag_answer}")
+            if rag_sources:
+                summaries = []
+                for doc in rag_sources:
+                    metadata = getattr(doc, "metadata", {}) or {}
+                    url = metadata.get("url") or metadata.get("source") or "<no-source>"
+                    summaries.append(url)
+                print(f"[retrieval] rag-response sources: {', '.join(summaries)}")
+        if sql_query is not None:
+            print(f"[retrieval] sql-response query: {sql_query}")
+            if sql_row_count is not None:
+                print(f"[retrieval] sql-response rows: {sql_row_count}")
 
     return HandlerResult(
         conversation_id=conversation_id,

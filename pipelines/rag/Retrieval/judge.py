@@ -110,7 +110,26 @@ def judge_prompt(
     )
 
 
-KEYWORDS_SQL = {"sql", "database", "table", "select", "query", "queries", "schema"}
+KEYWORDS_SQL = {
+    "sql",
+    "database",
+    "table",
+    "select",
+    "query",
+    "queries",
+    "schema",
+    "price",
+    "pricing",
+    "cheapest",
+    "expensive",
+    "cost",
+    "sales",
+    "revenue",
+    "average",
+    "sum",
+    "count",
+    "total",
+}
 KEYWORDS_RAG = {"document", "docs", "policy", "report", "manual", "vector", "embed"}
 
 
