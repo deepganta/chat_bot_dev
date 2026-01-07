@@ -119,7 +119,7 @@ def handle_user_query(
     store: Optional[QueryStore] = None,
     conversation_store: Optional[ConversationStore] = None,
     enable_judge: bool = False,
-    judge_model: str = "gpt-3.5-turbo",
+    judge_model: str = "gpt-4o-mini",
     llm: Optional[object] = None,
 ) -> HandlerResult:
     """Persist the prompt and return the stored records.

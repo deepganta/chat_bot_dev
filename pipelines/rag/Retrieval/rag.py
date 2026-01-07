@@ -13,11 +13,6 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable, Optional, Sequence, Tuple
 
-try:  # pragma: no cover - optional dependency at runtime
-    from langchain.chains import RetrievalQA
-except Exception as exc:  # pragma: no cover
-    raise RuntimeError("langchain is required for RAG responses") from exc
-
 try:  # pragma: no cover
     from langchain_openai import ChatOpenAI
 except Exception:  # pragma: no cover
@@ -82,7 +77,7 @@ def handle_rag_query(
     config_path: Path | str = DEFAULT_CONFIG_PATH,
     retriever: Optional[object] = None,
     llm: Optional[ChatOpenAI] = None,
-    chain: Optional[RetrievalQA] = None,
+    chain: Optional[object] = None,
     top_k: Optional[int] = None,
     model: str = DEFAULT_RAG_MODEL,
     history: Optional[Sequence[object]] = None,
@@ -126,13 +121,6 @@ def handle_rag_query(
 
     llm = llm or _default_llm(model=model)
 
-    qa_chain = chain or RetrievalQA.from_chain_type(
-        llm=llm,
-        retriever=retriever,
-        chain_type="stuff",
-        return_source_documents=True,
-    )
-
     history_text = _format_history(history or [])
     query_text = (
         "Conversation context:\n"
@@ -142,9 +130,31 @@ def handle_rag_query(
         else prompt
     )
 
-    raw_result = qa_chain.invoke({"query": query_text})
-    answer = (raw_result.get("result") or "").strip()
-    sources: Sequence[object] = raw_result.get("source_documents") or []
+    if chain is not None:  # pragma: no cover - allow injected chains for tests
+        raw_result = chain.invoke({"query": query_text})
+        answer = (raw_result.get("result") or "").strip()
+        sources: Sequence[object] = raw_result.get("source_documents") or []
+    else:
+        sources = retriever.get_relevant_documents(query_text)
+        context = "\n\n".join(
+            (getattr(doc, "page_content", "") or "").strip()
+            for doc in sources
+            if getattr(doc, "page_content", None)
+        ).strip()
+
+        system_prompt = (
+            "You are a Ford company assistant. Answer using ONLY the provided context snippets. "
+            "If the context does not contain the answer, say \"I couldn't find this in the indexed "
+            "Ford documents.\" Do not speculate. Be concise and helpful."
+        )
+        user_prompt = f"Context:\n{context}\n\nQuestion:\n{query_text}"
+        response = llm.invoke(
+            [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ]
+        )
+        answer = (response.content if hasattr(response, "content") else str(response)).strip()
 
     if not answer:
         answer = "I could not find a definitive answer in the indexed documents."

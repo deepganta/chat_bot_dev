@@ -1,0 +1,112 @@
+<mxfile host="app.diagrams.net" agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36" version="28.2.8">
+  <diagram id="ford-rag-flow" name="Ford RAG Flow">
+    <mxGraphModel dx="1426" dy="790" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1600" pageHeight="1200" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="cfg" value="Configs/corpus.yaml" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" parent="1" vertex="1">
+          <mxGeometry x="40" y="40" width="200" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="extract" value="extract_ford.py&#xa;data/input/crawlinfo.jsonl" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" parent="1" vertex="1">
+          <mxGeometry x="40" y="120" width="220" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="transform" value="transform_ford.py&#xa;data/clean/cleaned.jsonl" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" parent="1" vertex="1">
+          <mxGeometry x="40" y="210" width="220" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="ingest" value="ingestion pipeline&#xa;pipeline.py → graph_ingest.py" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;" parent="1" vertex="1">
+          <mxGeometry x="40" y="300" width="240" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="load" value="load_cleaned" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;" parent="1" vertex="1">
+          <mxGeometry x="40" y="390" width="160" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="chunk" value="chunk_documents" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;" parent="1" vertex="1">
+          <mxGeometry x="210" y="390" width="160" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="embed" value="embed_chunks_openai" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;" parent="1" vertex="1">
+          <mxGeometry x="380" y="390" width="180" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="store" value="store_to_chroma_langchain&#xa;data/index (Chroma)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" parent="1" vertex="1">
+          <mxGeometry x="570" y="380" width="220" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="vector" value="Vector Store&#xa;data/index/chroma.sqlite3" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" parent="1" vertex="1">
+          <mxGeometry x="820" y="390" width="230" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="dbgen" value="generate_ford_db.py" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;" parent="1" vertex="1">
+          <mxGeometry x="820" y="120" width="200" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="db" value="SQLite DB&#xa;data/ford.db" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;" parent="1" vertex="1">
+          <mxGeometry x="820" y="190" width="200" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="ui" value="Streamlit UI&#xa;interface.py" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" parent="1" vertex="1">
+          <mxGeometry x="40" y="520" width="200" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="handler" value="handler.py" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" parent="1" vertex="1">
+          <mxGeometry x="270" y="520" width="160" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="judge" value="judge.py&#xa;(LLM routing)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" parent="1" vertex="1">
+          <mxGeometry x="460" y="520" width="170" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="general" value="general.py&#xa;(LLM)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;" parent="1" vertex="1">
+          <mxGeometry x="660" y="470" width="160" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="rag" value="rag.py&#xa;(Retriever + LLM)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;" parent="1" vertex="1">
+          <mxGeometry x="660" y="540" width="180" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="sql" value="sql.py&#xa;(SQL + LLM)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;" parent="1" vertex="1">
+          <mxGeometry x="660" y="610" width="160" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="notes" value="Runtime Flow Notes&#xa;&#xa;interface.py&#xa;- reads session + conversation history&#xa;- sends prompt to handler&#xa;&#xa;handler.py&#xa;- persist query (data/queries/query_log.jsonl)&#xa;- append user msg (data/conversations/{id}.jsonl)&#xa;- judge_prompt() for routing&#xa;&#xa;judge.py&#xa;- LLM router (gpt-4o-mini) if key available&#xa;- heuristic fallback otherwise&#xa;&#xa;general.py&#xa;- ChatOpenAI + system prompt&#xa;- optional history&#xa;- save assistant msg&#xa;&#xa;rag.py&#xa;- load Chroma index&#xa;- retriever k + LLM answer from docs&#xa;- save assistant msg&#xa;&#xa;sql.py&#xa;- introspect schema&#xa;- LLM generates SQL&#xa;- execute SQLite query&#xa;- LLM summarizes rows&#xa;- save assistant msg&#xa;&#xa;Outputs&#xa;- reply shown in Streamlit UI&#xa;- console logs: route + sources/sql" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;align=left;verticalAlign=top;" parent="1" vertex="1">
+          <mxGeometry x="1040" y="500" width="520" height="520" as="geometry" />
+        </mxCell>
+        <mxCell id="e1" style="endArrow=block;html=1;" parent="1" source="cfg" target="extract" edge="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e2" style="endArrow=block;html=1;" parent="1" source="extract" target="transform" edge="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e3" style="endArrow=block;html=1;" parent="1" source="transform" target="ingest" edge="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e4" style="endArrow=block;html=1;" parent="1" source="ingest" target="load" edge="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e5" style="endArrow=block;html=1;" parent="1" source="load" target="chunk" edge="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e6" style="endArrow=block;html=1;" parent="1" source="chunk" target="embed" edge="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e7" style="endArrow=block;html=1;" parent="1" source="embed" target="store" edge="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e8" style="endArrow=block;html=1;" parent="1" source="store" target="vector" edge="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e9" style="endArrow=block;html=1;" parent="1" source="dbgen" target="db" edge="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e10" style="endArrow=block;html=1;" parent="1" source="ui" target="handler" edge="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e11" style="endArrow=block;html=1;" parent="1" source="handler" target="judge" edge="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e12" style="endArrow=block;html=1;" parent="1" source="judge" target="general" edge="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e13" style="endArrow=block;html=1;" parent="1" source="judge" target="rag" edge="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e14" style="endArrow=block;html=1;" parent="1" source="judge" target="sql" edge="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e15" style="endArrow=block;html=1;dashed=1;" parent="1" source="rag" target="vector" edge="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e16" style="endArrow=block;html=1;dashed=1;" parent="1" source="sql" target="db" edge="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

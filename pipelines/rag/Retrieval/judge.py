@@ -52,15 +52,16 @@ class JudgeVerdict:
     raw_response: Optional[str] = None
 
 
-SYSTEM_PROMPT = """You are a routing assistant for a hybrid retrieval system.
-Classify the user inquiry into exactly one of three options:
-  - "general": a plain question that can be answered with general knowledge.
-  - "rag": the user is asking about domain documents stored in a vector DB.
-  - "sql": the user needs structured business data that lives in a SQL database.
+SYSTEM_PROMPT = """You are the router for a Ford company assistant.
+Pick exactly one path:
+  - "rag": use Ford company/domain documents (policies, offers, vehicle info, support, history).
+  - "sql": pricing/vehicle-model/dealer questions requiring structured data from the Ford demo SQLite DB.
+  - "general": only if the question is clearly outside the Ford domain or purely generic knowledge.
 
-Return strict JSON with keys decision, confidence, rationale. Confidence must
-be a number between 0 and 1 reflecting your certainty.
-"""
+Bias toward "rag" for anything mentioning Ford, vehicles, policies, warranties, returns, offers,
+locations, history, or support topics. Bias toward "sql" for prices, cheapest/most expensive vehicles,
+counts, or aggregations. Return strict JSON with keys decision, confidence, rationale. Confidence is
+between 0 and 1."""
 
 
 def _default_llm(model: str = DEFAULT_MODEL):
@@ -130,7 +131,41 @@ KEYWORDS_SQL = {
     "count",
     "total",
 }
-KEYWORDS_RAG = {"document", "docs", "policy", "report", "manual", "vector", "embed"}
+
+# Domain cues that should route to the Ford document store.
+KEYWORDS_RAG = {
+    "document",
+    "docs",
+    "policy",
+    "policies",
+    "report",
+    "manual",
+    "vector",
+    "embed",
+    "warranty",
+    "return",
+    "returns",
+    "refund",
+    "support",
+    "service",
+    "offer",
+    "offers",
+    "discount",
+    "student",
+    "company",
+    "history",
+}
+
+BRAND_TERMS = {
+    "ford",
+    "ford motor",
+    "mustang",
+    "f-150",
+    "bronco",
+    "explorer",
+    "maverick",
+    "lincoln",
+}
 
 
 def _heuristic_judgement(prompt: str) -> JudgeVerdict:
@@ -139,9 +174,12 @@ def _heuristic_judgement(prompt: str) -> JudgeVerdict:
     if any(keyword in lower for keyword in KEYWORDS_SQL):
         decision = Decision.SQL
         rationale = "Detected SQL-oriented keywords."
+    elif any(term in lower for term in BRAND_TERMS):
+        decision = Decision.RAG
+        rationale = "Detected Ford-specific terms; prefer document store."
     elif any(keyword in lower for keyword in KEYWORDS_RAG):
         decision = Decision.RAG
-        rationale = "Detected document/vector store related keywords."
+        rationale = "Detected Ford domain or document-related keywords."
     else:
         decision = Decision.GENERAL
         rationale = "Defaulting to general reasoning path."
