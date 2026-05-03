@@ -1,6 +1,7 @@
 # pipelines/rag/ingestion/qa.py
 import os
 import argparse
+import logging
 import yaml
 
 # Try new package first, fall back to legacy import
@@ -11,6 +12,9 @@ except Exception:
 
 from langchain_openai import OpenAIEmbeddings, ChatOpenAI
 from langchain.chains import RetrievalQA
+
+log = logging.getLogger(__name__)
+
 
 def load_cfg(path: str):
     with open(path, "r", encoding="utf-8") as f:
@@ -50,11 +54,18 @@ def main():
     except Exception:
         # best-effort fallback if internal API changes
         count = -1
-    print(f"[debug] collection='{cfg.get('collection_name','rag')}', index='{cfg.get('output_dir','data')}/index', docs={count}")
+    log.info(
+        "[debug] collection='%s', index='%s/index', docs=%s",
+        cfg.get("collection_name", "rag"),
+        cfg.get("output_dir", "data"),
+        count,
+    )
 
     # If no docs, bail early with a helpful message
     if count == 0:
-        print("No documents in the vector store. Re-run ingest with the SAME corpus.yaml used here.")
+        log.warning(
+            "No documents in the vector store. Re-run ingest with the SAME corpus.yaml used here."
+        )
         return
 
     retriever = vs.as_retriever(search_type="similarity", search_kwargs={"k": k})
@@ -75,12 +86,16 @@ def main():
 
     # --- DEBUG: also show the raw retrieved docs if empty
     if not sources:
-        print("[debug] No sources returned by chain; inspecting retriever directly...")
-        docs = retriever.get_relevant_documents(args.query)
-        print(f"[debug] retriever returned {len(docs)} docs")
+        log.info("[debug] No sources returned by chain; inspecting retriever directly...")
+        docs = retriever.invoke(args.query)
+        log.info("[debug] retriever returned %d docs", len(docs))
         for i, d in enumerate(docs[:k], 1):
-            print(f"  - {i}: {d.metadata.get('url','<no-url>')} | {d.metadata.get('chunk_id','')}")
-        print()
+            log.info(
+                "  - %d: %s | %s",
+                i,
+                d.metadata.get("url", "<no-url>"),
+                d.metadata.get("chunk_id", ""),
+            )
 
     print("\n=== Answer ===\n")
     print((answer or "").strip() or "I don't know.")

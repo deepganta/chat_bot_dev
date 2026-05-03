@@ -3,13 +3,14 @@
 HTML → Readable Plain Text (NO CHUNKING)
 
 Reads:  data/input/crawlinfo.jsonl
-Writes: data/clean/plain_pages.jsonl
+Writes: data/clean/cleaned.jsonl
 """
 
 import argparse
 import hashlib
 import html as html_lib
 import json
+import logging
 import re
 from pathlib import Path
 from typing import Dict, Iterator, Optional, Tuple
@@ -18,6 +19,8 @@ try:
     from bs4 import BeautifulSoup  # type: ignore
 except Exception:
     BeautifulSoup = None
+
+log = logging.getLogger(__name__)
 
 
 # ---- I/O ----
@@ -36,7 +39,7 @@ def read_jsonl(path: Path) -> Iterator[Dict]:
             try:
                 yield json.loads(line)
             except Exception as e:
-                print(f"[transform] skip malformed JSON at line {ln}: {e}")
+                log.warning("[transform] skip malformed JSON at line %d: %s", ln, e)
 
 def append_jsonl(path: Path, obj: Dict) -> None:
     with path.open("a", encoding="utf-8") as f:
@@ -139,14 +142,19 @@ def transform_to_plain(input_jsonl: Path, output_jsonl: Path) -> None:
         append_jsonl(output_jsonl, out)
         total_written += 1
 
-    print(f"[transform] pages_seen={total_in} pages_written={total_written} → {output_jsonl}")
+    log.info(
+        "[transform] pages_seen=%d pages_written=%d -> %s",
+        total_in,
+        total_written,
+        output_jsonl,
+    )
 
 
 # ---- CLI ----
 def parse_args() -> argparse.Namespace:
     ap = argparse.ArgumentParser(description="HTML → readable plain text (no chunking)")
     ap.add_argument("--input", default="data/input/crawlinfo.jsonl")
-    ap.add_argument("--output", default="data/clean/plain_pages.jsonl")
+    ap.add_argument("--output", default="data/clean/cleaned.jsonl")
     return ap.parse_args()
 
 def main():
@@ -154,4 +162,8 @@ def main():
     transform_to_plain(Path(args.input), Path(args.output))
 
 if __name__ == "__main__":
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s | %(levelname)-7s | %(name)s | %(message)s",
+    )
     main()

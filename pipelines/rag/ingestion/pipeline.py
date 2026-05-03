@@ -1,6 +1,13 @@
 # pipeline.py
-import argparse, yaml
+import argparse
+import logging
+
+import yaml
+
 from .graph_ingest import build_graph
+
+log = logging.getLogger(__name__)
+
 
 def main():
     ap = argparse.ArgumentParser()
@@ -12,7 +19,11 @@ def main():
 
     app = build_graph().compile()         # compile the LangGraph into an app
     final_state = app.invoke({"config": cfg})  # run once with initial state
-    print("Done. Store stats:", final_state.get("store_stats"))
+    log.info("Done. Store stats: %s", final_state.get("store_stats"))
 
 if __name__ == "__main__":
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s | %(levelname)-7s | %(name)s | %(message)s",
+    )
     main()

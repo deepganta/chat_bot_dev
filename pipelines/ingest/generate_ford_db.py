@@ -5,13 +5,17 @@ plants(id PK, name, city, state, country, opened_year)
 dealers(id PK, name, city, state, region)
 vehicles(vin PK, model, model_year, trim, segment, msrp, plant_id FK)
 sales(id PK, vin FK, dealer_id FK, sale_date, sale_price, customer_type)
+zip_codes(zip PK, city, state, lat, lon)
+dealer_locations(id PK, dealer_id FK, zip FK, distance_miles)
+offers(id PK, dealer_id FK, model, trim, offer_type, amount, expiry_date)
 
 Usage
 -----
-$ python -m pipelines.etl.generate_ford_db --rows 200 --db data/ford.db --seed 42
+$ python -m pipelines.ingest.generate_ford_db --rows 200 --db data/ford.db --seed 42
 """
 
 import argparse
+import logging
 import os
 import random
 import sqlite3
@@ -20,6 +24,8 @@ from pathlib import Path
 from typing import List, Tuple
 
 from faker import Faker
+
+log = logging.getLogger(__name__)
 
 # ----------------------------
 # E = EXTRACT / SYNTHESIZE
@@ -36,8 +42,22 @@ FORD_MODELS = [
     ("Edge", "SUV", ["SE", "SEL", "Titanium", "ST"]),
     ("Expedition", "SUV", ["XL", "XLT", "Limited", "King Ranch", "Platinum"]),
 ]
+MODEL_TRIMS = {model: trims for model, _segment, trims in FORD_MODELS}
 
 US_REGIONS = ["Northeast", "Midwest", "South", "West"]
+REGION_STATE_MAP = {
+    "Northeast": ["ME", "NH", "VT", "MA", "RI", "CT", "NY", "NJ", "PA"],
+    "Midwest": ["OH", "MI", "IN", "IL", "WI", "MN", "IA", "MO", "KS"],
+    "South": ["DE", "MD", "VA", "WV", "KY", "NC", "SC", "GA", "FL", "TN", "AL", "MS", "TX"],
+    "West": ["AZ", "CO", "ID", "MT", "NV", "NM", "UT", "WY", "CA", "OR", "WA"],
+}
+REGION_BOUNDS = {
+    "Northeast": ((39.0, 47.5), (-80.0, -67.0)),
+    "Midwest": ((36.0, 49.0), (-104.0, -82.0)),
+    "South": ((25.0, 37.5), (-106.0, -75.0)),
+    "West": ((32.0, 49.0), (-125.0, -104.0)),
+}
+OFFER_TYPES = ("cashback", "apr", "lease", "maintenance")
 
 COUNTRIES = ["USA", "Canada", "Mexico"]
 US_STATES = [
@@ -59,6 +79,9 @@ def _drop_and_create_schema(conn: sqlite3.Connection):
     cur = conn.cursor()
     cur.executescript(
         """
+        DROP TABLE IF EXISTS offers;
+        DROP TABLE IF EXISTS dealer_locations;
+        DROP TABLE IF EXISTS zip_codes;
         DROP TABLE IF EXISTS sales;
         DROP TABLE IF EXISTS vehicles;
         DROP TABLE IF EXISTS dealers;
@@ -101,6 +124,31 @@ def _drop_and_create_schema(conn: sqlite3.Connection):
             customer_type TEXT NOT NULL CHECK(customer_type IN ('Retail','Fleet')),
             FOREIGN KEY (vin) REFERENCES vehicles(vin) ON DELETE CASCADE,
             FOREIGN KEY (dealer_id) REFERENCES dealers(id) ON DELETE RESTRICT
+        );
+
+        CREATE TABLE zip_codes(
+            zip TEXT PRIMARY KEY,
+            city TEXT NOT NULL,
+            state TEXT NOT NULL,
+            lat REAL NOT NULL,
+            lon REAL NOT NULL
+        );
+
+        CREATE TABLE dealer_locations(
+            id INTEGER PRIMARY KEY,
+            dealer_id INTEGER NOT NULL REFERENCES dealers(id),
+            zip TEXT NOT NULL REFERENCES zip_codes(zip),
+            distance_miles REAL NOT NULL
+        );
+
+        CREATE TABLE offers(
+            id INTEGER PRIMARY KEY,
+            dealer_id INTEGER NOT NULL REFERENCES dealers(id),
+            model TEXT NOT NULL,
+            trim TEXT,
+            offer_type TEXT NOT NULL CHECK(offer_type IN ('cashback','apr','lease','maintenance')),
+            amount REAL NOT NULL,
+            expiry_date DATE NOT NULL
         );
         """
     )
@@ -205,6 +253,75 @@ def synthesize_sales(n: int, vins: List[str], dealer_ids: List[int], rng: random
     return rows
 
 
+def synthesize_zip_codes(n: int, fake: Faker, rng: random.Random) -> List[Tuple]:
+    rows = []
+    used_zips = set()
+
+    for idx in range(n):
+        region = US_REGIONS[idx % len(US_REGIONS)]
+        state = rng.choice(REGION_STATE_MAP[region])
+
+        zip_code = fake.postcode_in_state(state_abbr=state)
+        if not zip_code or len(zip_code) != 5 or not zip_code.isdigit() or zip_code in used_zips:
+            # Fallback to deterministic 5-digit synthetic ZIP when Faker output is unsuitable.
+            while True:
+                zip_code = f"{rng.randint(10000, 99999):05d}"
+                if zip_code not in used_zips:
+                    break
+        used_zips.add(zip_code)
+
+        city = fake.city()
+        (lat_min, lat_max), (lon_min, lon_max) = REGION_BOUNDS[region]
+        lat = round(rng.uniform(lat_min, lat_max), 4)
+        lon = round(rng.uniform(lon_min, lon_max), 4)
+        rows.append((zip_code, city, state, lat, lon))
+    return rows
+
+
+def synthesize_dealer_locations(dealer_ids: List[int], zip_codes: List[str], rng: random.Random) -> List[Tuple]:
+    rows = []
+    row_id = 1
+    for dealer_id in dealer_ids:
+        location_count = rng.randint(1, 3)
+        local_zips = rng.sample(zip_codes, k=min(location_count, len(zip_codes)))
+        for zip_code in local_zips:
+            distance = round(rng.uniform(0.5, 25.0), 2)
+            rows.append((row_id, dealer_id, zip_code, distance))
+            row_id += 1
+    return rows
+
+
+def _offer_amount(offer_type: str, rng: random.Random) -> float:
+    if offer_type == "cashback":
+        return float(rng.randint(500, 7000))
+    if offer_type == "apr":
+        return round(rng.uniform(0.9, 5.9), 2)
+    if offer_type == "lease":
+        return float(rng.randint(199, 649))
+    # maintenance
+    return float(rng.randint(150, 1200))
+
+
+def synthesize_offers(dealer_ids: List[int], rng: random.Random) -> List[Tuple]:
+    rows = []
+    row_id = 1
+    model_names = [model for model, _segment, _trims in FORD_MODELS]
+    today = date.today()
+
+    for dealer_id in dealer_ids:
+        offer_count = rng.randint(2, 5)
+        selected_models = rng.sample(model_names, k=min(offer_count, len(model_names)))
+        for model in selected_models:
+            trims = MODEL_TRIMS.get(model, [])
+            trim = rng.choice(trims) if trims else None
+            offer_type = rng.choice(OFFER_TYPES)
+            amount = _offer_amount(offer_type, rng)
+            expiry_date = (today + timedelta(days=rng.randint(30, 180))).isoformat()
+            rows.append((row_id, dealer_id, model, trim, offer_type, amount, expiry_date))
+            row_id += 1
+    return rows
+
+
 # ----------------------------
 # L = LOAD
 # ----------------------------
@@ -214,6 +331,9 @@ def load_all(conn: sqlite3.Connection,
              dealers: List[Tuple],
              vehicles: List[Tuple],
              sales: List[Tuple],
+             zip_codes: List[Tuple],
+             dealer_locations: List[Tuple],
+             offers: List[Tuple],
              rng: random.Random):
     cur = conn.cursor()
 
@@ -242,6 +362,19 @@ def load_all(conn: sqlite3.Connection,
         "INSERT INTO sales(id, vin, dealer_id, sale_date, sale_price, customer_type) VALUES(?,?,?,?,?,?)",
         sales_loaded,
     )
+
+    cur.executemany(
+        "INSERT INTO zip_codes(zip, city, state, lat, lon) VALUES(?,?,?,?,?)",
+        zip_codes,
+    )
+    cur.executemany(
+        "INSERT INTO dealer_locations(id, dealer_id, zip, distance_miles) VALUES(?,?,?,?)",
+        dealer_locations,
+    )
+    cur.executemany(
+        "INSERT INTO offers(id, dealer_id, model, trim, offer_type, amount, expiry_date) VALUES(?,?,?,?,?,?,?)",
+        offers,
+    )
     conn.commit()
 
 
@@ -259,13 +392,20 @@ def etl(db_path: Path, rows_per_table: int, seed: int):
     dealers = synthesize_dealers(rows_per_table, fake, rng)
     vehicles = synthesize_vehicles(rows_per_table, [p[0] for p in plants], fake, rng)
     sales = synthesize_sales(rows_per_table, [v[0] for v in vehicles], [d[0] for d in dealers], rng)
+    zip_codes = synthesize_zip_codes(50, fake, rng)
+    dealer_locations = synthesize_dealer_locations(
+        [d[0] for d in dealers],
+        [z[0] for z in zip_codes],
+        rng,
+    )
+    offers = synthesize_offers([d[0] for d in dealers], rng)
 
     # Load (L)
-    load_all(conn, plants, dealers, vehicles, sales, rng)
+    load_all(conn, plants, dealers, vehicles, sales, zip_codes, dealer_locations, offers, rng)
 
     # Simple sanity counts
     cur = conn.cursor()
-    for t in ("plants", "dealers", "vehicles", "sales"):
+    for t in ("plants", "dealers", "vehicles", "sales", "zip_codes", "dealer_locations", "offers"):
         cnt = cur.execute(f"SELECT COUNT(*) FROM {t}").fetchone()[0]
         print(f"{t:<10}: {cnt} rows")
     conn.close()
@@ -280,5 +420,11 @@ def parse_args():
 
 
 if __name__ == "__main__":
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s | %(levelname)-7s | %(name)s | %(message)s",
+    )
     args = parse_args()
+    log.info("Starting Ford DB generation: db=%s rows=%d seed=%d", args.db, args.rows, args.seed)
     etl(Path(args.db), args.rows, args.seed)
+    log.info("Ford DB generation completed: db=%s", args.db)

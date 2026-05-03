@@ -9,7 +9,6 @@ import argparse
 import asyncio
 import json
 import random
-import time
 import urllib.parse
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -156,7 +155,7 @@ async def fetch_with_retries(
         except Exception as e:
             sleep_s = min(1.5 ** i, 8.0) + random.random() * 0.3
             log.debug("Error '%s' on %s → backoff %.2fs", e, url, sleep_s)
-            time.sleep(sleep_s)
+            await asyncio.sleep(sleep_s)
     return None, None, None
 
 # ---------- Orchestrator ----------
@@ -237,7 +236,7 @@ async def extract_once(cfg: CrawlConfig):
                 })
 
                 # polite pacing
-                time.sleep(random.randint(cfg.sleep_min_ms, cfg.sleep_max_ms) / 1000.0)
+                await asyncio.sleep(random.randint(cfg.sleep_min_ms, cfg.sleep_max_ms) / 1000.0)
 
         await asyncio.gather(*(worker(u) for u in seeds))
 

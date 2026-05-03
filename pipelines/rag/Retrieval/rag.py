@@ -18,11 +18,14 @@ try:  # pragma: no cover
 except Exception:  # pragma: no cover
     ChatOpenAI = None  # type: ignore
 
+from .llm_utils import invoke_with_retry
 from pipelines.rag.ingestion.qa import build_vectorstore, load_cfg
 
 
 DEFAULT_RAG_MODEL = "gpt-3.5-turbo"
 DEFAULT_CONFIG_PATH = Path("Configs/corpus.yaml")
+DEFAULT_TIMEOUT_SEC = 30
+_VECTORSTORE_CACHE: dict[str, object] = {}
 
 # Type alias mirroring the general responder without importing handler directly.
 MessageFactory = Callable[[str, str, str], object]
@@ -31,7 +34,7 @@ MessageFactory = Callable[[str, str, str], object]
 def _default_llm(model: str = DEFAULT_RAG_MODEL) -> ChatOpenAI:
     if ChatOpenAI is None:
         raise RuntimeError("langchain-openai is not installed; cannot answer RAG queries.")
-    return ChatOpenAI(model=model, temperature=0.0)
+    return ChatOpenAI(model=model, temperature=0.0, timeout=DEFAULT_TIMEOUT_SEC, max_retries=0)
 
 
 def _format_sources(sources: Sequence[object]) -> str:
@@ -68,6 +71,13 @@ def _format_history(history: Sequence[object], limit: int = 6) -> str:
     return "\n".join(lines)
 
 
+def _vectorstore_cache_key(cfg_path: Path, cfg: dict) -> str:
+    output_dir = str(cfg.get("output_dir", "data"))
+    collection_name = str(cfg.get("collection_name", "rag"))
+    index_dir = str(Path(output_dir) / "index")
+    return f"{cfg_path.resolve()}::{index_dir}::{collection_name}"
+
+
 def handle_rag_query(
     prompt: str,
     conversation_id: str,
@@ -82,7 +92,7 @@ def handle_rag_query(
     model: str = DEFAULT_RAG_MODEL,
     history: Optional[Sequence[object]] = None,
 ) -> Tuple[object, str, Sequence[object]]:
-    """Generate a retrieval-augmented response and append it to the conversation.
+    """Generate a retrieval-augmented response.
 
     Returns a tuple so the caller can log the raw pieces if needed.
 
@@ -108,10 +118,11 @@ def handle_rag_query(
     cfg = load_cfg(str(cfg_path))
     k = top_k or cfg.get("retriever_k", 4)
 
-    vectorstore = getattr(conversation_store, "_vectorstore_cache", None)
+    cache_key = _vectorstore_cache_key(cfg_path, cfg)
+    vectorstore = _VECTORSTORE_CACHE.get(cache_key)
     if vectorstore is None:
         vectorstore = build_vectorstore(cfg)
-        setattr(conversation_store, "_vectorstore_cache", vectorstore)
+        _VECTORSTORE_CACHE[cache_key] = vectorstore
 
     if retriever is None:
         retriever = vectorstore.as_retriever(
@@ -135,7 +146,7 @@ def handle_rag_query(
         answer = (raw_result.get("result") or "").strip()
         sources: Sequence[object] = raw_result.get("source_documents") or []
     else:
-        sources = retriever.get_relevant_documents(query_text)
+        sources = retriever.invoke(query_text)
         context = "\n\n".join(
             (getattr(doc, "page_content", "") or "").strip()
             for doc in sources
@@ -148,11 +159,14 @@ def handle_rag_query(
             "Ford documents.\" Do not speculate. Be concise and helpful."
         )
         user_prompt = f"Context:\n{context}\n\nQuestion:\n{query_text}"
-        response = llm.invoke(
+        response = invoke_with_retry(
+            llm,
             [
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt},
-            ]
+            ],
+            timeout_sec=DEFAULT_TIMEOUT_SEC,
+            max_attempts=3,
         )
         answer = (response.content if hasattr(response, "content") else str(response)).strip()
 
@@ -160,18 +174,11 @@ def handle_rag_query(
         answer = "I could not find a definitive answer in the indexed documents."
 
     timestamp = datetime.now(timezone.utc).isoformat()
-    content = answer + "\n\n" + _format_sources(sources)
     assistant_message = message_factory(
         role="assistant",
-        content=content.strip(),
+        content=answer.strip(),
         created_at=timestamp,
     )
-
-    append = getattr(conversation_store, "append", None)
-    if callable(append):
-        append(conversation_id, assistant_message)
-    else:  # pragma: no cover - defensive guard
-        raise AttributeError("conversation_store must provide an append(conversation_id, message) method")
 
     return assistant_message, answer, sources
 

@@ -1,6 +1,8 @@
 # ingestion/store.py
-import os, json
+import os, json, logging
 from typing import List, Dict, Optional
+
+log = logging.getLogger(__name__)
 
 def _persist_jsonl(index_dir: str, rows: List[Dict], name: str = "vectors.jsonl"):
     """Fallback storage: write vectors + metadata into a JSONL file."""
@@ -20,7 +22,10 @@ def store_to_chroma_langchain(chunks_with_vecs: List[Dict], index_dir: str = "da
     If Chroma or bindings are unavailable, fall back to JSONL.
     """
     try:
-        from langchain_community.vectorstores import Chroma
+        try:
+            from langchain_chroma import Chroma
+        except Exception:
+            from langchain_community.vectorstores import Chroma
         from langchain_openai import OpenAIEmbeddings
         from langchain.schema import Document
 
@@ -53,16 +58,18 @@ def store_to_chroma_langchain(chunks_with_vecs: List[Dict], index_dir: str = "da
 
         # Note: _collection is the underlying client; allowed here to avoid recomputation.
         vs._collection.add(ids=ids, embeddings=embs, metadatas=metas, documents=texts)
-        vs.persist()
         return {"store": "Chroma", "persist_directory": index_dir, "stored": len(ids)}
     except Exception as e:
+        log.error("Chroma store failed; falling back to JSONL storage: %s", e, exc_info=True)
         # Fallback: serialize everything so you can still build a retriever later if needed.
-        rows = [{
-            "id": r["chunk_id"],
-            "vector": r["embedding"],
-            "meta": {"url": r.get("url", ""), "order": r.get("order", 0), **(r.get("meta") or {})},
-            "text": r["text"],
-        } for r in chunks_with_vecs]
+        rows = []
+        for r in chunks_with_vecs:
+            rows.append({
+                "id": r.get("chunk_id", ""),
+                "vector": r.get("embedding"),
+                "meta": {"url": r.get("url", ""), "order": r.get("order", 0), **(r.get("meta") or {})},
+                "text": r.get("text", ""),
+            })
         info = _persist_jsonl(index_dir, rows)
         info["error"] = str(e)
         return info

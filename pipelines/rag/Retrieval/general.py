@@ -15,8 +15,10 @@ try:  # pragma: no cover - optional dependency at runtime
 except Exception:  # pragma: no cover
     ChatOpenAI = None  # type: ignore
 
+from .llm_utils import invoke_with_retry
 
 DEFAULT_GENERAL_MODEL = "gpt-3.5-turbo"
+DEFAULT_TIMEOUT_SEC = 30
 
 SYSTEM_PROMPT = (
     "You are a concise, professional assistant. Answer user questions directly. "
@@ -32,25 +34,20 @@ MessageFactory = Callable[[str, str, str], object]
 def _default_llm(model: str = DEFAULT_GENERAL_MODEL) -> ChatOpenAI:
     if ChatOpenAI is None:
         raise RuntimeError("langchain-openai is not installed; cannot answer general queries.")
-    return ChatOpenAI(model=model, temperature=0.2)
+    return ChatOpenAI(model=model, temperature=0.2, timeout=DEFAULT_TIMEOUT_SEC, max_retries=0)
 
 
-def _format_history(history: Sequence[object], limit: int = 6) -> str:
-    """Convert prior conversation turns into a compact context string."""
+def _history_as_messages(history: Sequence[object], limit: int = 6) -> list[dict[str, str]]:
+    """Convert prior turns into role-accurate chat messages."""
 
-    if not history:
-        return ""
-
-    recent = history[-limit:]
-    lines = []
-    for message in recent:
-        role = getattr(message, "role", "assistant")
-        content = getattr(message, "content", "")
-        label = "User" if role == "user" else "Assistant"
-        content = (content or "").strip()
-        if content:
-            lines.append(f"{label}: {content}")
-    return "\n".join(lines)
+    messages: list[dict[str, str]] = []
+    for message in history[-limit:]:
+        role = str(getattr(message, "role", "assistant")).strip().lower()
+        content = str(getattr(message, "content", "") or "").strip()
+        if role not in {"user", "assistant"} or not content:
+            continue
+        messages.append({"role": role, "content": content})
+    return messages
 
 
 def handle_general_query(
@@ -63,7 +60,7 @@ def handle_general_query(
     llm: Optional[ChatOpenAI] = None,
     history: Optional[Sequence[object]] = None,
 ) -> Tuple[object, str]:
-    """Generate a response for a general query and append it to the conversation.
+    """Generate a response for a general query.
 
     Parameters
     ----------
@@ -87,7 +84,7 @@ def handle_general_query(
     Returns
     -------
     Tuple[object, str]
-        The persisted assistant message object and the raw text returned by the LLM.
+        Assistant message object and the raw text returned by the LLM.
     """
 
     if not prompt.strip():
@@ -100,26 +97,17 @@ def handle_general_query(
         raise RuntimeError("OPENAI_API_KEY is not set; cannot run general responses.")
 
     llm = llm or _default_llm(model=model)
+    prior_messages = _history_as_messages(history or [])
 
-    history_text = _format_history(history or [])
-    context_instruction = (
-        "Conversation context so far:\n"
-        f"{history_text}\n\n"
-        "Use this context when replying to the latest user message."
-        if history_text
-        else ""
-    )
-
-    response = llm.invoke(
+    response = invoke_with_retry(
+        llm,
         [
             {"role": "system", "content": SYSTEM_PROMPT},
-            *(
-                [{"role": "system", "content": context_instruction}]
-                if context_instruction
-                else []
-            ),
+            *prior_messages,
             {"role": "user", "content": prompt},
-        ]
+        ],
+        timeout_sec=DEFAULT_TIMEOUT_SEC,
+        max_attempts=3,
     )
 
     raw_text = response.content if hasattr(response, "content") else str(response)
@@ -131,12 +119,6 @@ def handle_general_query(
         content=content,
         created_at=timestamp,
     )
-
-    append = getattr(conversation_store, "append", None)
-    if callable(append):
-        append(conversation_id, assistant_message)
-    else:  # pragma: no cover - defensive programming for unexpected store types
-        raise AttributeError("conversation_store must provide an append(conversation_id, message) method")
 
     return assistant_message, content
 

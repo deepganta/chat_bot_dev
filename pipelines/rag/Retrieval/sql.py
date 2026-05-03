@@ -22,9 +22,11 @@ try:  # pragma: no cover - optional dependency
 except Exception:  # pragma: no cover
     ChatOpenAI = None  # type: ignore
 
+from .llm_utils import invoke_with_retry
 
 DEFAULT_SQL_MODEL = "gpt-4o"
 DEFAULT_DB_PATH = Path("data/ford.db")
+DEFAULT_TIMEOUT_SEC = 30
 
 MessageFactory = Callable[[str, str, str], object]
 
@@ -56,7 +58,7 @@ def _require_llm() -> None:
 
 def _default_llm(model: str) -> ChatOpenAI:
     _require_llm()
-    return ChatOpenAI(model=model, temperature=0.0)
+    return ChatOpenAI(model=model, temperature=0.0, timeout=DEFAULT_TIMEOUT_SEC, max_retries=0)
 
 
 def _introspect_schema(conn: sqlite3.Connection) -> str:
@@ -142,7 +144,12 @@ def _generate_sql(prompt: str, schema: str, metadata: str, llm: ChatOpenAI) -> T
             ),
         }
     )
-    response = llm.invoke(messages)
+    response = invoke_with_retry(
+        llm,
+        messages,
+        timeout_sec=DEFAULT_TIMEOUT_SEC,
+        max_attempts=3,
+    )
     raw = response.content if hasattr(response, "content") else str(response)
     data = _parse_json_response(raw)
     sql = data.get("sql", "").strip()
@@ -168,7 +175,8 @@ def _summarize_result(
     )
     rows_json = json.dumps(rows, indent=2)
     context_note = f"\nNote: {note}" if note else ""
-    response = llm.invoke(
+    response = invoke_with_retry(
+        llm,
         [
             {"role": "system", "content": system},
             {
@@ -177,7 +185,9 @@ def _summarize_result(
                     f"User question:\n{prompt}\n\nSQL executed:\n{sql}{context_note}\n\nRows (JSON):\n{rows_json}"
                 ),
             },
-        ]
+        ],
+        timeout_sec=DEFAULT_TIMEOUT_SEC,
+        max_attempts=3,
     )
     raw = response.content if hasattr(response, "content") else str(response)
     return raw.strip()
@@ -224,9 +234,9 @@ def handle_sql_query(
     model: str = DEFAULT_SQL_MODEL,
     history: Optional[Sequence[object]] = None,
 ) -> Tuple[object, str, Sequence[Sequence[object]]]:
-    """Execute the SQL workflow and append the final assistant message.
+    """Execute the SQL workflow and return response artifacts.
 
-    Returns the message object, executed SQL string, and the raw rows.
+    Returns the message object (summary text), executed SQL string, and raw rows.
 
     Parameters
     ----------
@@ -261,7 +271,7 @@ def handle_sql_query(
     try:
         schema = _introspect_schema(conn)
         metadata = _build_metadata_summary(conn)
-        sql, rationale = _generate_sql(contextual_prompt, schema, metadata, llm)
+        sql, _rationale = _generate_sql(contextual_prompt, schema, metadata, llm)
 
         cursor = conn.execute(sql)
         rows = cursor.fetchall()
@@ -283,32 +293,11 @@ def handle_sql_query(
             for row in rows
         ]
         summary = _summarize_result(contextual_prompt, sql, row_dicts, llm, note=no_match_note)
-        display_rows = _rows_to_display(columns, [tuple(row) for row in rows])
-
-        content_parts = [
-            summary,
-            "",
-            f"SQL: ```sql\n{sql}\n```",
-        ]
-        if rationale:
-            content_parts.insert(1, f"_Model rationale_: {rationale}")
-        if display_rows:
-            content_parts.append("")
-            content_parts.append("Key rows:\n" + display_rows)
-
         message = message_factory(
             role="assistant",
-            content="\n".join(part for part in content_parts if part).strip(),
+            content=summary.strip(),
             created_at=datetime.now(timezone.utc).isoformat(),
         )
-
-        append = getattr(conversation_store, "append", None)
-        if callable(append):
-            append(conversation_id, message)
-        else:  # pragma: no cover
-            raise AttributeError(
-                "conversation_store must expose append(conversation_id, message)"
-            )
 
         return message, sql, rows
     finally:

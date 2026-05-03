@@ -1,13 +1,29 @@
+.claude/settings.local.json
+
+# Python / virtualenv
 venv/
 __pycache__/
 *.pyc
 *.pyo
 *.pyd
+
+# Databases / local state
 *.sqlite3
 *.db
 *.log
+
+# Environment / secrets
 .env
 .env.*
+!.env.example
+*.pem
+*.key
+*.crt
+*.p12
+*.pfx
+secrets/
+
+# OS / editor artifacts
 .DS_Store
 .idea/
 .vscode/
@@ -19,6 +35,8 @@ __pycache__/
 *.orig
 *.rej
 *.egg-info/
+
+# Build artifacts
 dist/
 build/
 *.egg
@@ -26,5 +44,18 @@ build/
 *.zip
 *.log
 *.out
-*.pid 
-*.bin          
+*.pid
+*.bin
+
+# Runtime data artifacts (generated locally; do not commit)
+data/input/
+data/clean/
+data/queries/
+data/conversations/
+data/index/
+data/*.jsonl
+data/*.db
+data/*.sqlite3
+
+# Keep design diagrams in repo
+!data/*.drawio
